@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multi Integration</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #1a1a1a; color: #fff; }
+    body { display: grid; place-items: center; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
+    .console-screen {
+      width: 100vmin;
+      height: 100vmin;
+      max-width: 640px;
+      max-height: 640px;
+      /* border-radius: 8px; */
+      background: #000;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 1fr;
+      /* border: 8px solid #333; */
+    }
+
+    /* 320x320 — scale 240 design up 1.333x for visual parity */
+    @media ((min-width: 261px) and (max-width: 360px)), ((min-height: 261px) and (max-height: 360px)) {
+      .console-screen {
+        width: 240px;
+        height: 240px;
+        transform: scale(1.3333333);
+        transform-origin: center;
+        /* border-width: 4px; */
+      }
+    }
+
+    /* 240x240 base */
+    @media (max-width: 260px), (max-height: 260px) {
+      /* .console-screen { border-width: 4px; } */
+    }
+
+    /* 640x640 — scale 240 design up 2.666x for exactly 240→640 */
+    @media (min-width: 600px) and (min-height: 600px) {
+      .console-screen {
+        width: 240px;
+        height: 240px;
+        transform: scale(2.6666667);
+        transform-origin: center;
+        /* border-width: 4px; */
+      }
+    }
+
+    /* Config UI */
+    .config-container {
+      display: none;
+      max-width: 640px;
+      width: 92%;
+      background: #2a2a2a;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .config-container.show { display: block; }
+    .config-title { font-size: 20px; font-weight: 600; margin-bottom: 12px; text-align: center; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .control-label { color: #cbd5e1; font-size: 13px; font-weight: 600; }
+    .search, .text-input, .number-input { background: #1f1f1f; color: #eee; border: 1px solid #3a3a3a; border-radius: 8px; padding: 8px 10px; }
+    .number-input { width: 120px; }
+    .btn { background: #383838; color: #fff; border: 1px solid #444; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+    .btn:hover { background: #424242; }
+    .hint { color: #9aa4af; font-size: 12px; text-align: center; margin-top: 8px; }
+
+    .list { display: grid; gap: 8px; }
+    .row { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 8px; align-items: center; }
+    .row .text-input { width: 100%; }
+
+    /* Drag handle for reordering rows */
+    .row-drag { display: inline-flex; align-items: center; justify-content: center; width: 34px; user-select: none; cursor: grab; background: #2f2f2f; border: 1px solid #444; border-radius: 8px; }
+    .row-drag:active { cursor: grabbing; }
+    .row.drag-over .row-drag, .row.drag-over .text-input, .row.drag-over .btn { background: #4a4a4a; }
+
+    /* Display: stacked iframes */
+    .stage { position: relative; width: 100%; height: 100%; background: #000; }
+    .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: none; }
+    .stage iframe.active { display: block; }
+
+    /* Tiny on-screen indicator (optional) */
+    .indicator { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 2; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #444; }
+    .dot.active { background: #4a90e2; box-shadow: 0 0 4px rgba(74,144,226,0.9); }
+
+    /* Simple empty state */
+    .empty { width: 100%; height: 100%; display: grid; place-items: center; color: #cbd5e1; font-weight: 600; }
+
+    /* In-app popup overlay (modal with iframe) */
+    .popup-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 9999; }
+    .popup-overlay.show { display: flex; }
+    .popup-window { background: #111; border: 1px solid #333; width: 720px; height: 720px; max-width: 96vw; max-height: 96vh; display: grid; grid-template-rows: auto 1fr; }
+    .popup-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: #1f1f1f; border-bottom: 1px solid #333; color: #e5e7eb; font-weight: 600; }
+    .popup-actions { display: flex; gap: 6px; }
+    .popup-btn { background: #2b2b2b; color: #fff; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+    .popup-btn:hover { background: #3a3a3a; }
+    .popup-frame { width: 100%; height: 100%; border: 0; background: #000; }
+  </style>
+</head>
+
+<body>
+  <div class="config-container" id="config-container">
+    <div class="config-title">Multi Integration — Settings</div>
+    <div class="controls">
+      <div class="control-label">Seconds per integration</div>
+      <input id="dwell-seconds" class="number-input" type="number" min="2" max="120" step="1" />
+      <button id="add-slot" class="btn" type="button">Add Integration</button>
+    </div>
+    <div class="list" id="url-list"></div>
+    <div class="hint">Enter up to 5 web integration URLs. Display mode appends <code>?kraken=1</code>.</div>
+  </div>
+
+  <div class="console-screen" id="display" style="display:none;">
+    <div class="stage" id="stage">
+      <div class="empty" id="empty">No integrations configured</div>
+      <div class="indicator" id="indicator" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <!-- In-app popup overlay (reused) -->
+  <div class="popup-overlay" id="popup-overlay" aria-hidden="true">
+    <div class="popup-window" id="popup-window" role="dialog" aria-modal="true">
+      <div class="popup-header">
+        <span id="popup-title">Popup</span>
+        <div class="popup-actions">
+          <button class="popup-btn" id="popup-open-external" type="button" title="Open in browser">Open in Browser</button>
+          <button class="popup-btn" id="popup-close" type="button" title="Close">✕</button>
+        </div>
+      </div>
+      <iframe class="popup-frame" id="popup-frame" src="about:blank"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const APP_VERSION = '0.1.0';
+    const STORAGE_URLS_KEY = 'multi-integration-urls';
+    const STORAGE_DWELL_KEY = 'multi-integration-dwell-seconds';
+    const CHANNEL_NAME = 'multi-integration-sync';
+
+    const MAX_SLOTS = 5;
+    const DEFAULT_VISIBLE_SLOTS = 3;
+    const DEFAULT_DWELL_SECONDS = 30;
+    const DEFAULT_URLS = [
+      'https://njs.gg:8090/static/mlb-scores.html',
+      'https://njs.gg:8090/static/nfl-scores.html',
+      'https://njs.gg:8090/static/kraken-emu.html'
+    ];
+
+    let channel = null;
+    let urls = [];
+    let dwellSeconds = DEFAULT_DWELL_SECONDS;
+
+    let rotateTimer = null;
+    let preloadTimer = null;
+    let currentIndex = 0;
+    let iframes = [];
+
+    function isDisplayMode() {
+      const params = new URLSearchParams(window.location.search);
+      const kraken = (params.get('kraken') || '').toLowerCase();
+      return kraken === '1' || kraken === 'true';
+    }
+
+    function openChannel() {
+      if ('BroadcastChannel' in window) {
+        try { if (!channel) channel = new BroadcastChannel(CHANNEL_NAME); } catch (e) {}
+      }
+    }
+
+    function loadUrls() {
+      try {
+        const raw = localStorage.getItem(STORAGE_URLS_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(arr) && arr.length > 0) {
+          urls = arr.map(v => String(v || '').trim()).slice(0, MAX_SLOTS);
+        } else {
+          // First-run defaults
+          urls = DEFAULT_URLS.slice(0, MAX_SLOTS);
+        }
+      } catch (e) { urls = []; }
+      // Ensure at least DEFAULT_VISIBLE_SLOTS entries exist
+      while (urls.length < DEFAULT_VISIBLE_SLOTS) urls.push('');
+    }
+
+    function persistUrls() {
+      try { localStorage.setItem(STORAGE_URLS_KEY, JSON.stringify(urls)); } catch (e) {}
+    }
+
+    function loadDwell() {
+      try {
+        const raw = localStorage.getItem(STORAGE_DWELL_KEY);
+        const n = raw ? Number(raw) : NaN;
+        dwellSeconds = Number.isFinite(n) && n >= 2 ? Math.min(120, Math.max(2, Math.floor(n))) : DEFAULT_DWELL_SECONDS;
+      } catch (e) { dwellSeconds = DEFAULT_DWELL_SECONDS; }
+    }
+
+    function persistDwell() {
+      try { localStorage.setItem(STORAGE_DWELL_KEY, String(dwellSeconds)); } catch (e) {}
+    }
+
+    function showDisplay() {
+      document.getElementById('config-container').classList.remove('show');
+      document.getElementById('display').style.display = 'grid';
+    }
+
+    function showConfig() {
+      document.getElementById('config-container').classList.add('show');
+      document.getElementById('display').style.display = 'none';
+    }
+
+    function addKrakenParam(u) {
+      const s = String(u || '').trim();
+      if (!s) return '';
+      const hasQ = s.includes('?');
+      const hasK = /[?&]kraken=/.test(s);
+      if (hasK) return s;
+      return s + (hasQ ? '&' : '?') + 'kraken=1';
+    }
+
+    function sanitizeUrl(u) {
+      return String(u || '').trim();
+    }
+
+    // In-app popup overlay helpers (avoid OS default browser in Electron)
+    function openInAppPopup(url, width, height, title) {
+      const overlay = document.getElementById('popup-overlay');
+      const win = document.getElementById('popup-window');
+      const frame = document.getElementById('popup-frame');
+      const hdr = document.getElementById('popup-title');
+      const btnExt = document.getElementById('popup-open-external');
+      const btnClose = document.getElementById('popup-close');
+      if (!overlay || !win || !frame || !btnExt || !btnClose) return;
+      const w = Math.max(240, Math.floor(Number(width) || 720));
+      const h = Math.max(240, Math.floor(Number(height) || 720));
+      win.style.width = Math.min(w, Math.floor(window.innerWidth * 0.96)) + 'px';
+      win.style.height = Math.min(h, Math.floor(window.innerHeight * 0.96)) + 'px';
+      hdr.textContent = String(title || 'Popup');
+      frame.src = String(url || 'about:blank');
+      overlay.classList.add('show');
+      overlay.setAttribute('aria-hidden', 'false');
+
+      const close = () => {
+        overlay.classList.remove('show');
+        overlay.setAttribute('aria-hidden', 'true');
+        try { frame.src = 'about:blank'; } catch (e) {}
+        document.removeEventListener('keydown', onKey);
+      };
+      const onKey = (ev) => { if (ev.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey);
+      btnClose.onclick = close;
+      btnExt.onclick = () => { try { window.open(url, '_blank'); } catch (e) {} };
+      overlay.onclick = (ev) => { if (ev.target === overlay) close(); };
+    }
+
+    function broadcastState() {
+      openChannel();
+      if (channel) {
+        try { channel.postMessage({ urls: urls.slice(), dwellSeconds }); } catch (e) {}
+      }
+    }
+
+    // ----- Config UI -----
+    function renderConfig() {
+      const list = document.getElementById('url-list');
+      const dwellInput = document.getElementById('dwell-seconds');
+      const addBtn = document.getElementById('add-slot');
+      if (!list || !dwellInput || !addBtn) return;
+
+      dwellInput.value = String(dwellSeconds);
+      dwellInput.addEventListener('change', () => {
+        const n = Number(dwellInput.value);
+        if (Number.isFinite(n) && n >= 2) {
+          dwellSeconds = Math.min(120, Math.max(2, Math.floor(n)));
+          persistDwell();
+          broadcastState();
+        } else {
+          dwellInput.value = String(dwellSeconds);
+        }
+      });
+
+      function renderRows() {
+        list.innerHTML = urls.map((u, idx) => {
+          const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+          return `
+            <div class="row" data-idx="${idx}">
+              <button class="row-drag" type="button" draggable="true" aria-label="Reorder">≡</button>
+              <input class="text-input" type="url" placeholder="https://host/integration.html" value="${esc(u)}" />
+              <button class="btn btn-open-config" type="button">Config</button>
+              <button class="btn btn-open-display" type="button">Display</button>
+              <button class="btn btn-remove" type="button" title="Remove">✕</button>
+            </div>
+          `;
+        }).join('');
+
+        list.querySelectorAll('.row .text-input').forEach((inp) => {
+          inp.addEventListener('input', () => {
+            const parent = inp.closest('.row');
+            const idx = Number(parent?.getAttribute('data-idx'));
+            if (!Number.isFinite(idx)) return;
+            urls[idx] = sanitizeUrl(inp.value);
+            persistUrls();
+            broadcastState();
+          });
+        });
+        list.querySelectorAll('.btn-open-config').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const parent = btn.closest('.row');
+            const idx = Number(parent?.getAttribute('data-idx'));
+            const u = urls[idx] || '';
+            if (u) openInAppPopup(u, 820, 720, 'Config');
+          });
+        });
+        list.querySelectorAll('.btn-open-display').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const parent = btn.closest('.row');
+            const idx = Number(parent?.getAttribute('data-idx'));
+            const u = urls[idx] || '';
+            if (u) openInAppPopup(addKrakenParam(u), 720, 720, 'Display');
+          });
+        });
+        list.querySelectorAll('.btn-remove').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const parent = btn.closest('.row');
+            const idx = Number(parent?.getAttribute('data-idx'));
+            if (!Number.isFinite(idx)) return;
+            urls.splice(idx, 1);
+            if (urls.length === 0) urls.push('');
+            persistUrls();
+            renderRows();
+            broadcastState();
+          });
+        });
+
+        // Drag-and-drop reordering
+        let dragSrcIdx = null;
+        list.querySelectorAll('.row-drag').forEach((handle) => {
+          handle.addEventListener('dragstart', (ev) => {
+            const parent = handle.closest('.row');
+            dragSrcIdx = parent ? Number(parent.getAttribute('data-idx')) : null;
+            try { ev.dataTransfer.setData('text/plain', String(dragSrcIdx ?? '')); } catch (e) {}
+            if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+          });
+          handle.addEventListener('dragend', () => {
+            dragSrcIdx = null;
+            list.querySelectorAll('.row.drag-over').forEach((r) => r.classList.remove('drag-over'));
+          });
+        });
+
+        function moveIndexBeforeTarget(src, tgt) {
+          const s = Number(src);
+          const t = Number(tgt);
+          if (!Number.isFinite(s) || !Number.isFinite(t) || s === t) return false;
+          if (s < 0 || s >= urls.length || t < 0 || t >= urls.length) return false;
+          const [item] = urls.splice(s, 1);
+          const newT = s < t ? t - 1 : t;
+          urls.splice(newT, 0, item);
+          persistUrls();
+          return true;
+        }
+
+        list.querySelectorAll('.row').forEach((row) => {
+          row.addEventListener('dragover', (ev) => {
+            ev.preventDefault();
+            row.classList.add('drag-over');
+            if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+          });
+          row.addEventListener('dragleave', () => {
+            row.classList.remove('drag-over');
+          });
+          row.addEventListener('drop', (ev) => {
+            ev.preventDefault();
+            row.classList.remove('drag-over');
+            let src = dragSrcIdx;
+            try { const t = ev.dataTransfer.getData('text/plain'); if (t) src = Number(t); } catch (e) {}
+            const targetIdx = Number(row.getAttribute('data-idx'));
+            if (!Number.isFinite(src) || !Number.isFinite(targetIdx) || src === targetIdx) return;
+            const changed = moveIndexBeforeTarget(src, targetIdx);
+            if (changed) {
+              renderRows();
+              broadcastState();
+            }
+          });
+        });
+      }
+
+      renderRows();
+
+      addBtn.addEventListener('click', () => {
+        if (urls.length >= MAX_SLOTS) return;
+        urls.push('');
+        persistUrls();
+        renderRows();
+        broadcastState();
+      });
+    }
+
+    // ----- Display (rotation) -----
+    function clearRotation() {
+      if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+      if (preloadTimer) { clearTimeout(preloadTimer); preloadTimer = null; }
+      const stage = document.getElementById('stage');
+      if (stage) {
+        stage.querySelectorAll('iframe').forEach(el => {
+          try { el.src = 'about:blank'; } catch (e) {}
+          el.remove();
+        });
+      }
+    }
+
+    function startRotation() {
+      clearRotation();
+      const stage = document.getElementById('stage');
+      const empty = document.getElementById('empty');
+      const indicator = document.getElementById('indicator');
+      if (!stage || !indicator) return;
+
+      const validUrls = urls.map(sanitizeUrl).filter(u => !!u);
+      if (validUrls.length === 0) {
+        empty.style.display = 'grid';
+        indicator.innerHTML = '';
+        return;
+      }
+      empty.style.display = 'none';
+
+      // Dots
+      indicator.innerHTML = validUrls.map((_, i) => `<span class="dot${i === 0 ? ' active' : ''}"></span>`).join('');
+
+      currentIndex = 0;
+
+      function createFrameForIndex(idx, makeActive) {
+        const frame = document.createElement('iframe');
+        frame.src = addKrakenParam(validUrls[idx]);
+        frame.className = makeActive ? 'active' : '';
+        stage.appendChild(frame);
+        return frame;
+      }
+
+      // If only one URL, just show it and don't rotate
+      if (validUrls.length === 1) {
+        createFrameForIndex(0, true);
+        return;
+      }
+
+      let currentFrame = createFrameForIndex(0, true);
+      let preloadFrame = null;
+
+      const intervalMs = Math.max(2000, Math.floor(dwellSeconds * 1000));
+
+      function schedulePreload() {
+        if (preloadTimer) { clearTimeout(preloadTimer); preloadTimer = null; }
+        const preloadDelay = Math.max(0, intervalMs - 1000);
+        preloadTimer = setTimeout(() => {
+          const nextIndex = (currentIndex + 1) % validUrls.length;
+          if (!preloadFrame) {
+            preloadFrame = createFrameForIndex(nextIndex, false);
+          }
+        }, preloadDelay);
+      }
+
+      const step = () => {
+        const prev = currentIndex;
+        const next = (currentIndex + 1) % validUrls.length;
+
+        let nextFrame = preloadFrame;
+        if (!nextFrame) {
+          nextFrame = createFrameForIndex(next, false);
+        }
+
+        nextFrame.classList.add('active');
+
+        if (currentFrame) {
+          currentFrame.classList.remove('active');
+          try { currentFrame.src = 'about:blank'; } catch (e) {}
+          currentFrame.remove();
+        }
+
+        currentFrame = nextFrame;
+        preloadFrame = null;
+
+        const dots = indicator.querySelectorAll('.dot');
+        if (dots[prev]) dots[prev].classList.remove('active');
+        if (dots[next]) dots[next].classList.add('active');
+        currentIndex = next;
+
+        schedulePreload();
+      };
+
+      schedulePreload();
+      rotateTimer = setInterval(step, intervalMs);
+    }
+
+    // Pause rotation when hidden
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (isDisplayMode()) startRotation();
+      } else {
+        clearRotation();
+      }
+    });
+
+    async function initializeApp() {
+      loadUrls();
+      loadDwell();
+      const displayMode = isDisplayMode();
+
+      if (displayMode) {
+        showDisplay();
+        openChannel();
+        if (channel) {
+          channel.onmessage = (event) => {
+            const data = event.data || {};
+            if (Array.isArray(data.urls)) {
+              urls = data.urls.map(sanitizeUrl).slice(0, MAX_SLOTS);
+              startRotation();
+            }
+            if (Number.isFinite(Number(data.dwellSeconds))) {
+              dwellSeconds = Math.min(120, Math.max(2, Math.floor(Number(data.dwellSeconds))));
+              persistDwell();
+              startRotation();
+            }
+          };
+        }
+        startRotation();
+      } else {
+        showConfig();
+        renderConfig();
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', initializeApp);
+  </script>
+</body>
+</html>
+
